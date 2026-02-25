@@ -9,12 +9,13 @@
 #define BUF_LEN 65536 //64kB
 #pragma comment(lib, "Advapi32.lib")
 
-bool IsProcessElevated() {
+bool IsProcessElevated()
+{
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
     {
         return false;
-    
+    }
 
     TOKEN_ELEVATION elevation;
     DWORD size;
@@ -24,7 +25,9 @@ bool IsProcessElevated() {
     return result && elevation.TokenIsElevated;
 }
 
-void fatal(const std::string& msg, int status = 1) {
+
+void fatal(const std::string& msg, int status = 1)
+{
     std::cout << msg << "\n";
     system("pause");
     std::exit(status);
