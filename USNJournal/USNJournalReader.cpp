@@ -2,80 +2,74 @@
 #include <stdlib.h>
 #include <Windows.h>
 #include <WinIoCtl.h>
+#include <iostream>
 #include <stdio.h>
+#include <sstream>
 
-#define BUF_LEN 4096
+#define BUF_LEN 65536 //64kB
+#pragma comment(lib, "Advapi32.lib")
+
+bool IsProcessElevated() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        return false;
+    
+
+    TOKEN_ELEVATION elevation;
+    DWORD size;
+    BOOL result = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size);
+
+    CloseHandle(token);
+    return result && elevation.TokenIsElevated;
+}
+
+void fatal(const std::string& msg, int status = 1) {
+    std::cout << msg << "\n";
+    system("pause");
+    std::exit(status);
+}
 
 int main()
 {
+    if (!IsProcessElevated()) {
+        fatal("ERROR! Must run this program as Administrator!");
+    }
     HANDLE hVol;
     CHAR Buffer[BUF_LEN];
 
     USN_JOURNAL_DATA JournalData;
     PUSN_RECORD_V3 UsnRecord;
-    DWORD dwBytes;
-    DWORD dwRetBytes;
-
+    DWORD dwBytes, dwRetBytes;
 
     READ_USN_JOURNAL_DATA_V1 ReadData = { 0 };
     ReadData.ReasonMask = 0xFFFFFFFF;
     ReadData.ReturnOnlyOnClose = FALSE;
     ReadData.MaxMajorVersion = 3;
 
-    hVol = CreateFile(  
-                TEXT("\\\\.\\c:"),
-                GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                NULL,
-                OPEN_EXISTING,
-                0,
-                NULL);
+    hVol = CreateFile( TEXT("\\\\.\\c:"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 
     if (hVol == INVALID_HANDLE_VALUE)
     {
-        printf("CreateFile failed (%d)\n", GetLastError());
-		system("pause");
-        return 1;
+        fatal("CreateFile failed (" + std::to_string(GetLastError()) + ")");
     }
 
-    if (!DeviceIoControl(hVol,
-        FSCTL_QUERY_USN_JOURNAL,
-        NULL,
-        0,
-        &JournalData,
-        sizeof(JournalData),
-        &dwBytes,
-        NULL))
+    if (!DeviceIoControl( hVol, FSCTL_QUERY_USN_JOURNAL, NULL, 0, &JournalData, sizeof(JournalData), &dwBytes, NULL))
     {
-        printf("Query journal failed (%d)\n", GetLastError());
-		system("pause");
-        return 1; 
+        fatal("Query journal failed (" + std::to_string(GetLastError()) + ")");
     }
 
     ReadData.UsnJournalID = JournalData.UsnJournalID;
-	//ReadData.StartUsn = JournalData.NextUsn;
-    ReadData.StartUsn = JournalData.FirstUsn;
+    //ReadData.StartUsn = JournalData.FirstUsn;
+    ReadData.StartUsn = JournalData.NextUsn;
 
-    printf("Journal ID: %I64x\n", JournalData.UsnJournalID);
-    printf("FirstUsn: %I64x\n\n", JournalData.FirstUsn);
-
-    //for (int I = 0; I <= 10; I++)
-    while(ReadData.StartUsn > 0)
+    while(true)
     {
         memset(Buffer, 0, BUF_LEN);
 
-        if (!DeviceIoControl(hVol,
-            FSCTL_READ_USN_JOURNAL,
-            &ReadData,
-            sizeof(ReadData),
-            &Buffer,
-            BUF_LEN,
-            &dwBytes,
-            NULL))
+        if (!DeviceIoControl( hVol, FSCTL_READ_USN_JOURNAL, &ReadData, sizeof(ReadData), &Buffer, BUF_LEN, &dwBytes, NULL))
         {
-            printf("Read journal failed (%d)\n", GetLastError());
-			system("pause");
-            return 1 ;
+            fatal("Read journal failed (" + std::to_string(GetLastError()) + ")");
         }
 
         dwRetBytes = dwBytes - sizeof(USN);
@@ -83,24 +77,18 @@ int main()
         // Find the first record
         UsnRecord = (PUSN_RECORD_V3)(((PUCHAR)Buffer) + sizeof(USN));
 
-        printf("****************************************\n");
-
-        // This loop could go on for a long time, given the current buffer size.
         while (dwRetBytes > 0)
         {
 
-            //printf("USN: %I64x\n", UsnRecord->Usn);
-            //printf("File name: %.*S\n",
-            //    UsnRecord->FileNameLength / 2,
-            //    UsnRecord->FileName);
-            //printf("Reason: %x\n", UsnRecord->Reason);
-            //printf("\n");
+            printf("USN: %I64x\n", UsnRecord->Usn);
+            printf("File name: %.*S\n", UsnRecord->FileNameLength / 2, UsnRecord->FileName);
+            printf("Reason: %x\n", UsnRecord->Reason);
+            printf("\n");
 
             dwRetBytes -= UsnRecord->RecordLength;
 
             // Find the next record
-            UsnRecord = (PUSN_RECORD_V3)(((PCHAR)UsnRecord) +
-                UsnRecord->RecordLength);
+            UsnRecord = (PUSN_RECORD_V3)(((PCHAR)UsnRecord) + UsnRecord->RecordLength);
         }
         // Update starting USN for next call
         ReadData.StartUsn = *(USN*)&Buffer;
