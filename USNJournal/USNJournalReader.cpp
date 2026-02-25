@@ -32,6 +32,18 @@ void fatal(const std::string& msg, int status = 1)
     system("pause");
     std::exit(status);
 }
+bool isXml(const WCHAR* name, int len) {
+    // Minimum length: ".xml" = 4 chars
+    if (len < 4)
+        return false;
+
+    // Compare last 4 characters
+    return (name[len - 4] == L'.' &&
+        (name[len - 3] == L'x' || name[len - 3] == L'X') &&
+        (name[len - 2] == L'm' || name[len - 2] == L'M') &&
+        (name[len - 1] == L'l' || name[len - 1] == L'L'));
+}
+
 
 int main()
 {
@@ -82,11 +94,15 @@ int main()
 
         while (dwRetBytes > 0)
         {
-
-            printf("USN: %I64x\n", UsnRecord->Usn);
-            printf("File name: %.*S\n", UsnRecord->FileNameLength / 2, UsnRecord->FileName);
-            printf("Reason: %x\n", UsnRecord->Reason);
-            printf("\n");
+            if (isXml(UsnRecord->FileName, UsnRecord->FileNameLength / 2)) 
+            {
+                //Only Interested In XML Files
+                printf("USN: %I64x\n", UsnRecord->Usn);
+                printf("File name: %.*S\n", UsnRecord->FileNameLength / 2, UsnRecord->FileName);
+                printf("Reason: %x\n", UsnRecord->Reason);
+                printf("\n");
+            }
+            
 
             dwRetBytes -= UsnRecord->RecordLength;
 

@@ -23,5 +23,6 @@
     <Text Include="Makefile">
       <Filter>Source Files</Filter>
     </Text>
+    <Text Include="Notes.txt" />
   </ItemGroup>
 </Project>

@@ -94,6 +94,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="Makefile" />
+    <Text Include="Notes.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="USNJournalReader.cpp" />
