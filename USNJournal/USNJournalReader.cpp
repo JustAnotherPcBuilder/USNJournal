@@ -7,7 +7,10 @@
 #include <sstream>
 
 #define BUF_LEN 65536 //64kB
-#pragma comment(lib, "Advapi32.lib")
+
+// Why do I need this pragma comment?
+#pragma comment(lib, "Advapi32.lib") 
+
 
 bool IsProcessElevated()
 {
@@ -25,13 +28,13 @@ bool IsProcessElevated()
     return result && elevation.TokenIsElevated;
 }
 
-
 void fatal(const std::string& msg, int status = 1)
 {
     std::cout << msg << "\n";
     system("pause");
     std::exit(status);
 }
+
 bool isXml(const WCHAR* name, int len) {
     // Minimum length: ".xml" = 4 chars
     if (len < 4)
@@ -43,7 +46,6 @@ bool isXml(const WCHAR* name, int len) {
         (name[len - 2] == L'm' || name[len - 2] == L'M') &&
         (name[len - 1] == L'l' || name[len - 1] == L'L'));
 }
-
 
 int main()
 {
@@ -94,15 +96,19 @@ int main()
 
         while (dwRetBytes > 0)
         {
-            if (isXml(UsnRecord->FileName, UsnRecord->FileNameLength / 2)) 
+            // Filters Out Active and Temporary Files
+            if ((UsnRecord->Reason & USN_REASON_CLOSE ) && !(UsnRecord->FileName[0] == L'$'))
             {
-                //Only Interested In XML Files
-                printf("USN: %I64x\n", UsnRecord->Usn);
-                printf("File name: %.*S\n", UsnRecord->FileNameLength / 2, UsnRecord->FileName);
-                printf("Reason: %x\n", UsnRecord->Reason);
-                printf("\n");
+                // Filters XML files Only
+                if (isXml(UsnRecord->FileName, UsnRecord->FileNameLength / 2))
+                {
+                    //Only Interested In XML Files
+                    printf("USN: %I64x\n", UsnRecord->Usn);
+                    printf("File name: %.*S\n", UsnRecord->FileNameLength / 2, UsnRecord->FileName);
+                    printf("Reason: %x\n", UsnRecord->Reason);
+                    printf("\n");
+                }                
             }
-            
 
             dwRetBytes -= UsnRecord->RecordLength;
 
