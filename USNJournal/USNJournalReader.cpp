@@ -50,35 +50,41 @@ bool isXml(const WCHAR* name, int len) {
 
 int main()
 {
-    if (!IsProcessElevated()) {
+    if (!IsProcessElevated())
         fatal("ERROR! Must run this program as Administrator!");
-    }
-    HANDLE hVol;
-    CHAR Buffer[BUF_LEN];
-
-    USN_JOURNAL_DATA JournalData;
-    PUSN_RECORD_V3 UsnRecord, CurrentUsnRecord;
-    DWORD dwBytes, dwRetBytes;
-
-    READ_USN_JOURNAL_DATA_V1 ReadData = { 0 };
-    ReadData.ReasonMask = 0xFFFFFFFF;
-    ReadData.ReturnOnlyOnClose = FALSE;
-    ReadData.MaxMajorVersion = 3;
-
-    hVol = CreateFile( TEXT("\\\\.\\c:"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+    
+    HANDLE hVol = CreateFile( TEXT("\\\\.\\c:"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 
     if (hVol == INVALID_HANDLE_VALUE)
         fatal("CreateFile failed (" + std::to_string(GetLastError()) + ")");
     
-
+    // dwRetBytes probably redundant
+    DWORD dwBytes, dwRetBytes;
+    USN_JOURNAL_DATA JournalData;
     if (!DeviceIoControl( hVol, FSCTL_QUERY_USN_JOURNAL, NULL, 0, &JournalData, sizeof(JournalData), &dwBytes, NULL))
         fatal("Query journal failed (" + std::to_string(GetLastError()) + ")");
-    
+   
+    READ_USN_JOURNAL_DATA_V1 ReadData = { 0 };
+    ReadData.ReasonMask = 0xFFFFFFFF;
+    ReadData.ReturnOnlyOnClose = FALSE;
+    ReadData.MaxMajorVersion = 3;
     ReadData.UsnJournalID = JournalData.UsnJournalID;
     ReadData.StartUsn = JournalData.NextUsn;
+    ReadData.BytesToWaitFor = 1;
+    ReadData.Timeout = 0;
 
+    static CHAR Buffer[BUF_LEN];
+    PUSN_RECORD_V3 UsnRecord, CurrentUsnRecord;
     while(true)
     {
+        /*
+        * DeviceIoControl returns The USN (64bit) along with any records associated 
+        * with that USN. You can think of the USN as the file's ID.
+        +---------------- + ---------------- + ---------------- + ...
+        | USN(8 bytes) | USN_RECORD_V3 | USN_RECORD_V3 | ...
+        + ---------------- + ---------------- + ---------------- + ...
+        We are interested in data only, so we skip the USN to check the data.
+        */
         if (!DeviceIoControl( hVol, FSCTL_READ_USN_JOURNAL, &ReadData, sizeof(ReadData), &Buffer, BUF_LEN, &dwBytes, NULL))
             fatal("Read journal failed (" + std::to_string(GetLastError()) + ")"); 
 
@@ -105,7 +111,7 @@ int main()
             if (!isXml(CurrentUsnRecord->FileName, CurrentUsnRecord->FileNameLength / 2))
                 continue;
                 
-            // Process Logic
+            // Process Logic -- Do Stuff
             printf("USN: %I64x\n", CurrentUsnRecord->Usn);
             printf("File name: %.*S\n", CurrentUsnRecord->FileNameLength / 2, CurrentUsnRecord->FileName);
             printf("Reason: %x\n", CurrentUsnRecord->Reason);
