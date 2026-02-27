@@ -4,6 +4,15 @@
 #include <stdio.h>
 #include <sstream>
 
+#define BUF_LEN 64 * 1024 // 64kB
+
+// Why do I need this pragma comment?
+#pragma comment(lib, "Advapi32.lib") 
+
+/**
+ * Allows pausing the console so view USN Journal output while debugging.
+ * Can be left alone as Release will not cause a system pause regardless.
+ */
 #ifdef _DEBUG
 #include <cstdlib>
 #define DEBUG_PAUSE() std::system("pause")
@@ -11,11 +20,13 @@
 #define DEBUG_PAUSE() ((void)0)
 #endif
 
-#define BUF_LEN 64 * 1024 //64kB
-
-// Why do I need this pragma comment?
-#pragma comment(lib, "Advapi32.lib") 
-
+/**
+ * Queries the Token Elevation State by opening the current process 
+ * security token to determine whether the process is running with
+ * elevated privilege.
+ * 
+ * @return True if the process token indicates elevation
+ */
 bool IsProcessElevated()
 {
     HANDLE token = nullptr;
@@ -30,6 +41,11 @@ bool IsProcessElevated()
     return result && elevation.TokenIsElevated;
 }
 
+/*
+ * Terminates the program after printing an error message.
+ * 
+ * @param msg Error message to display.
+ */
 void fatal(const std::string& msg, int status = 1)
 {
     std::cerr << msg << "\n";
@@ -37,7 +53,17 @@ void fatal(const std::string& msg, int status = 1)
     std::exit(status);
 }
 
-bool isXml(const WCHAR* name, int len) {
+/**
+ * Determines whether the given UTF-16 filename ends with the extension 'XML'
+ * using a fast case-insensitive comparison. 
+ * 
+ * @param name Pointer to a UTF-16 filename buffer.
+ * @param len  Length of the filename in UTF-16 code units.
+ *
+ * @return true if the filename is an XML file.
+ */
+bool isXml(const WCHAR* name, int len)
+{
     // Minimum length: ".xml" = 4 chars
     if (len < 4) 
         return false;
@@ -58,20 +84,19 @@ int main()
     if (hVol == INVALID_HANDLE_VALUE)
         fatal("CreateFile failed (" + std::to_string(GetLastError()) + ")");
     
-    // dwRetBytes probably redundant
-    DWORD dwBytes, dwRetBytes;
-    USN_JOURNAL_DATA JournalData;
-    if (!DeviceIoControl( hVol, FSCTL_QUERY_USN_JOURNAL, NULL, 0, &JournalData, sizeof(JournalData), &dwBytes, NULL))
+    DWORD BytesRemaining, BytesReturned;
+    USN_JOURNAL_DATA Journal;
+    if (!DeviceIoControl( hVol, FSCTL_QUERY_USN_JOURNAL, NULL, 0, &Journal, sizeof(Journal), &BytesReturned, NULL))
         fatal("Query journal failed (" + std::to_string(GetLastError()) + ")");
    
-    READ_USN_JOURNAL_DATA_V1 ReadData = { 0 };
-    ReadData.ReasonMask = 0xFFFFFFFF;
-    ReadData.ReturnOnlyOnClose = FALSE;
-    ReadData.MaxMajorVersion = 3;
-    ReadData.UsnJournalID = JournalData.UsnJournalID;
-    ReadData.StartUsn = JournalData.NextUsn;
-    ReadData.BytesToWaitFor = 1;
-    ReadData.Timeout = 0;
+    READ_USN_JOURNAL_DATA_V1 UsnData = { 0 };
+    UsnData.ReasonMask = USN_REASON_CLOSE;
+    UsnData.ReturnOnlyOnClose = FALSE;
+    UsnData.MaxMajorVersion = 3;
+    UsnData.UsnJournalID = Journal.UsnJournalID;
+    UsnData.StartUsn = Journal.NextUsn;
+    UsnData.BytesToWaitFor = 1;
+    UsnData.Timeout = 0;
 
     static CHAR Buffer[BUF_LEN];
     PUSN_RECORD_V3 UsnRecord, CurrentUsnRecord;
@@ -83,31 +108,26 @@ int main()
         +---------------- + ---------------- + ---------------- + ...
         | USN(8 bytes) | USN_RECORD_V3 | USN_RECORD_V3 | ...
         + ---------------- + ---------------- + ---------------- + ...
-        We are interested in data only, so we skip the USN to check the data.
+        We are interested in data only, so we skip the USN to process the USN Records.
         */
-        if (!DeviceIoControl( hVol, FSCTL_READ_USN_JOURNAL, &ReadData, sizeof(ReadData), &Buffer, BUF_LEN, &dwBytes, NULL))
-            fatal("Read journal failed (" + std::to_string(GetLastError()) + ")"); 
-
-        dwRetBytes = dwBytes - sizeof(USN);
-
-        // Find the first record
+        if (!DeviceIoControl( hVol, FSCTL_READ_USN_JOURNAL, &UsnData, sizeof(UsnData), &Buffer, BUF_LEN, &BytesReturned, NULL))
+            fatal("Read journal failed (" + std::to_string(GetLastError()) + ")");
+        
         UsnRecord = (PUSN_RECORD_V3)(((PUCHAR)Buffer) + sizeof(USN));
+        BytesRemaining = BytesReturned - sizeof(USN);        
 
-        while (dwRetBytes > 0)
+        // Process all USN Record Data in Buffer
+        while (BytesRemaining > 0)
         {
             CurrentUsnRecord = UsnRecord;
-            dwRetBytes -= UsnRecord->RecordLength;
+            BytesRemaining -= UsnRecord->RecordLength;
             UsnRecord = (PUSN_RECORD_V3)(((PCHAR)UsnRecord) + UsnRecord->RecordLength);
 
-            // Filters Active Files
-            if (!(CurrentUsnRecord->Reason & USN_REASON_CLOSE))
-                continue;
-
-            // Filters Temporary Files
+            // Filters NTFS Metadata Files
             if (CurrentUsnRecord->FileName[0] == L'$')
                 continue;
 
-            // Filters XML files Only
+            // Filters non-XML files
             if (!isXml(CurrentUsnRecord->FileName, CurrentUsnRecord->FileNameLength / 2))
                 continue;
                 
@@ -119,7 +139,7 @@ int main()
         }
 
         // Update starting USN for next call
-        ReadData.StartUsn = *(USN*)&Buffer;
+        UsnData.StartUsn = *(USN*)&Buffer;
     }
 
     CloseHandle(hVol);
