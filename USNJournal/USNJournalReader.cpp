@@ -53,6 +53,24 @@ void fatal(const std::string& msg, int status = 1)
     std::exit(status);
 }
 
+// In order to determine the file path, you would need to use the File Reference Number (FRN) to query the file system for the full path.
+// This is highly inefficient for multiple files detected in a volume.
+// Instead, we can cre
+
+void buildDirectoryStructure() {
+    // Build a directory structure in memory by querying the file system for all files and their FRNs.
+    // This allows for quick lookups of file paths based on FRNs when processing USN records.
+}
+
+
+bool isInDirectoryOfInterest(PUSN_RECORD_V3 record)
+{
+    // Need to check the Directory Structure to 
+    return true;
+}
+
+
+
 /**
  * Determines whether the given UTF-16 filename ends with the extension 'XML'
  * using a fast case-insensitive comparison. 
@@ -79,6 +97,9 @@ int main()
     if (!IsProcessElevated())
         fatal("ERROR! Must run this program as Administrator!");
     
+	// Build the directory structure in memory for quick lookups of file paths based on FRNs when processing USN records.
+    buildDirectoryStructure();
+
     HANDLE hVol = CreateFile( TEXT("\\\\.\\c:"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 
     if (hVol == INVALID_HANDLE_VALUE)
@@ -126,16 +147,18 @@ int main()
             // Filters NTFS Metadata Files
             if (CurrentUsnRecord->FileName[0] == L'$')
                 continue;
+ 
+            if (isInDirectoryOfInterest(CurrentUsnRecord)){
 
-            // Filters non-XML files
-            if (!isXml(CurrentUsnRecord->FileName, CurrentUsnRecord->FileNameLength / 2))
-                continue;
-                
-            // Process Logic -- Do Stuff
-            printf("USN: %I64x\n", CurrentUsnRecord->Usn);
-            printf("File name: %.*S\n", CurrentUsnRecord->FileNameLength / 2, CurrentUsnRecord->FileName);
-            printf("Reason: %x\n", CurrentUsnRecord->Reason);
-            printf("\n");
+                // Filters non-XML files
+                if (!isXml(CurrentUsnRecord->FileName, CurrentUsnRecord->FileNameLength / 2))
+                    continue;
+                printf("USN: %I64x\n", CurrentUsnRecord->Usn);
+                printf("File name: %.*S\n", CurrentUsnRecord->FileNameLength / 2, CurrentUsnRecord->FileName);
+                printf("Reason: %x\n", CurrentUsnRecord->Reason);
+                printf("\n");
+            }
+            
         }
 
         // Update starting USN for next call
