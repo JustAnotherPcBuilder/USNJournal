@@ -57,15 +57,45 @@ void fatal(const std::string& msg, int status = 1)
 // This is highly inefficient for multiple files detected in a volume.
 // Instead, we can cre
 
-void buildDirectoryStructure() {
+
+
+
+
+//struct Node {
+//    uint64_t frn;
+//    uint64_t parentFrn;
+//	std::wstring name;
+//};
+//std::unordered_map<FILE_ID_128, Node> directoryStructure;
+bool buildDirectoryStructure() {
     // Build a directory structure in memory by querying the file system for all files and their FRNs.
     // This allows for quick lookups of file paths based on FRNs when processing USN records.
+
+
+    //NTFS_FILE_RECORD_INPUT_BUFFER in = { fileId };
+    //NTFS_FILE_RECORD_OUTPUT_BUFFER out;
+
+    //DeviceIoControl(
+    //    hVolume,
+    //    FSCTL_GET_NTFS_FILE_RECORD,
+    //    &in,
+    //    sizeof(in),
+    //    &out,
+    //    sizeof(out),
+    //    &bytesReturned,
+    //    NULL
+    //);
+
+
+
+
+	return true;
 }
 
 
-bool isInDirectoryOfInterest(PUSN_RECORD_V3 record)
+bool isInDirectoryOfInterest(FILE_ID_128 parent)
 {
-    // Need to check the Directory Structure to 
+    
     return true;
 }
 
@@ -97,8 +127,8 @@ int main()
     if (!IsProcessElevated())
         fatal("ERROR! Must run this program as Administrator!");
     
-	// Build the directory structure in memory for quick lookups of file paths based on FRNs when processing USN records.
-    buildDirectoryStructure();
+    if (!buildDirectoryStructure())
+        fatal("Failed to build directory structure in memory.");
 
     HANDLE hVol = CreateFile( TEXT("\\\\.\\c:"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 
@@ -126,9 +156,9 @@ int main()
         /*
         * DeviceIoControl returns The USN (64bit) along with any records associated 
         * with that USN. You can think of the USN as the file's ID.
-        +---------------- + ---------------- + ---------------- + ...
+        +------------- + ------------- + ------------- + ...
         | USN(8 bytes) | USN_RECORD_V3 | USN_RECORD_V3 | ...
-        + ---------------- + ---------------- + ---------------- + ...
+        + ------------ + ------------- + ------------- + ...
         We are interested in data only, so we skip the USN to process the USN Records.
         */
         if (!DeviceIoControl( hVol, FSCTL_READ_USN_JOURNAL, &UsnData, sizeof(UsnData), &Buffer, BUF_LEN, &BytesReturned, NULL))
@@ -148,11 +178,13 @@ int main()
             if (CurrentUsnRecord->FileName[0] == L'$')
                 continue;
  
-            if (isInDirectoryOfInterest(CurrentUsnRecord)){
+            if (isInDirectoryOfInterest(CurrentUsnRecord->ParentFileReferenceNumber)){
 
                 // Filters non-XML files
                 if (!isXml(CurrentUsnRecord->FileName, CurrentUsnRecord->FileNameLength / 2))
                     continue;
+
+                
                 printf("USN: %I64x\n", CurrentUsnRecord->Usn);
                 printf("File name: %.*S\n", CurrentUsnRecord->FileNameLength / 2, CurrentUsnRecord->FileName);
                 printf("Reason: %x\n", CurrentUsnRecord->Reason);
